@@ -5,7 +5,9 @@ description = "MCP server for Google Imagen API - text-to-image generation"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "google-auth>=2.43.0",
     "google-genai>=1.53.0",
+    "httpx>=0.28.1",
     "mcp>=1.23.1",
     "pillow>=12.0.0",
 ]
@@ -16,6 +18,7 @@ mcp-imagen-server = "mcp_imagen_server.server:main"
 [dependency-groups]
 dev = [
     "ruff>=0.14.8",
+    "pytest>=8.0.0",
 ]
 
 [build-system]

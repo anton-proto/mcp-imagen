@@ -1,10 +1,14 @@
 """Google Imagen API client for image generation."""
 
+import base64
 import logging
 from pathlib import Path
 from typing import Literal
 
+import httpx
 from google import genai
+from google.auth import default
+from google.auth.transport.requests import Request
 from google.genai import types
 
 logger = logging.getLogger(__name__)
@@ -15,6 +19,9 @@ ImagenModel = Literal[
     "imagen-4.0-fast-generate-001",
     "imagen-4.0-ultra-generate-001",
 ]
+
+# Customization model (Imagen 3 with style support)
+CustomizationModel = Literal["imagen-3.0-capability-001"]
 
 # Aspect ratios
 AspectRatio = Literal["1:1", "3:4", "4:3", "9:16", "16:9"]
@@ -40,11 +47,17 @@ class ImagenClient:
             if not project:
                 raise ValueError("project is required when using Vertex AI")
             self.client = genai.Client(vertexai=True, project=project, location=location)
+            self.project = project
+            self.location = location
+            self.vertexai = True
             logger.info(
                 f"Initialized Imagen client with Vertex AI (project={project}, location={location})"
             )
         else:
             self.client = genai.Client()
+            self.project = None
+            self.location = None
+            self.vertexai = False
             logger.info("Initialized Imagen client with Gemini API")
 
     def generate_images(
@@ -120,4 +133,163 @@ class ImagenClient:
 
         except Exception as e:
             logger.error(f"Error generating images: {e}")
+            raise
+
+    def generate_images_with_style(
+        self,
+        prompt: str,
+        style_image_path: str | Path,
+        style_description: str,
+        output_dir: str | Path = ".",
+        sample_count: int = 1,
+    ) -> list[str]:
+        """Generate images following the style of a reference image.
+
+        Uses Imagen 3 Customization (imagen-3.0-capability-001) via REST API
+        for pure text-to-image generation with style guidance.
+
+        Args:
+            prompt: Text description of the image to generate
+            style_image_path: Path to the style reference image
+            style_description: Description of the style
+                (e.g., "watercolor style", "neon sign style")
+            output_dir: Directory to save generated images
+            sample_count: Number of images to generate (1-4)
+
+        Returns:
+            List of file paths to generated images
+
+        Raises:
+            ValueError: If parameters are invalid or Vertex AI not configured
+            FileNotFoundError: If style image doesn't exist
+            Exception: If image generation fails
+        """
+        # Validate Vertex AI is configured
+        if not self.vertexai:
+            raise ValueError(
+                "Style customization requires Vertex AI. "
+                "Initialize client with vertexai=True and provide project ID."
+            )
+
+        # Validate parameters
+        if sample_count < 1 or sample_count > 4:
+            raise ValueError("sample_count must be between 1 and 4")
+
+        style_path = Path(style_image_path)
+        if not style_path.exists():
+            raise FileNotFoundError(f"Style image not found: {style_image_path}")
+
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Generating {sample_count} image(s) with style customization via REST API")
+        logger.info(f"Style image: {style_image_path}")
+        logger.info(f"Style description: {style_description}")
+        logger.info(f"Prompt: {prompt}")
+
+        try:
+            # Read and base64 encode the style reference image
+            with open(style_path, "rb") as f:
+                style_image_bytes = f.read()
+            style_image_b64 = base64.b64encode(style_image_bytes).decode("utf-8")
+
+            # Build the full prompt with style reference
+            full_prompt = (
+                f"Generate an image in {style_description} [1] "
+                f"based on the following caption: {prompt}"
+            )
+
+            # Build request body for Vertex AI REST API
+            request_body = {
+                "instances": [
+                    {
+                        "prompt": full_prompt,
+                        "referenceImages": [
+                            {
+                                "referenceType": "REFERENCE_TYPE_STYLE",
+                                "referenceId": 1,
+                                "referenceImage": {"bytesBase64Encoded": style_image_b64},
+                                "styleImageConfig": {"styleDescription": style_description},
+                            }
+                        ],
+                    }
+                ],
+                "parameters": {"sampleCount": sample_count},
+            }
+
+            # Get access token
+            credentials, _ = default()
+            credentials.refresh(Request())
+            access_token = credentials.token
+
+            # Build API endpoint URL
+            endpoint = (
+                f"https://{self.location}-aiplatform.googleapis.com/v1/"
+                f"projects/{self.project}/locations/{self.location}/"
+                f"publishers/google/models/imagen-3.0-capability-001:predict"
+            )
+
+            # Make REST API call
+            logger.info(f"Calling Vertex AI REST API: {endpoint}")
+            with httpx.Client(timeout=120.0) as client:
+                response = client.post(
+                    endpoint,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=request_body,
+                )
+
+            # Check for errors
+            if response.status_code != 200:
+                error_detail = response.text
+                raise Exception(
+                    f"API request failed with status {response.status_code}: {error_detail}"
+                )
+
+            # Parse response
+            response_data = response.json()
+            predictions = response_data.get("predictions", [])
+
+            if not predictions:
+                raise Exception("No images were generated in the response")
+
+            # Save generated images and collect file paths
+            saved_files = []
+            for i, prediction in enumerate(predictions):
+                # Get base64 image data
+                image_b64 = prediction.get("bytesBase64Encoded")
+                if not image_b64:
+                    logger.warning(f"Prediction {i} missing image data, skipping")
+                    continue
+
+                # Decode image
+                image_bytes = base64.b64decode(image_b64)
+
+                # Generate filename
+                safe_prompt = "".join(c if c.isalnum() or c in " -_" else "_" for c in prompt)
+                safe_prompt = safe_prompt[:40]  # Limit length
+                safe_style = "".join(
+                    c if c.isalnum() or c in " -_" else "_" for c in style_description
+                )
+                safe_style = safe_style[:20]
+                filename = f"{safe_prompt}_style_{safe_style}_{i + 1}.png"
+                filepath = output_path / filename
+
+                # Save image
+                with open(filepath, "wb") as f:
+                    f.write(image_bytes)
+
+                saved_files.append(str(filepath.absolute()))
+                logger.info(f"Saved styled image {i + 1}/{len(predictions)} to: {filepath}")
+
+            if not saved_files:
+                raise Exception("No images could be saved from the response")
+
+            logger.info(f"Successfully generated {len(saved_files)} styled image(s)")
+            return saved_files
+
+        except Exception as e:
+            logger.error(f"Error generating styled images: {e}")
             raise
