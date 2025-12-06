@@ -180,6 +180,14 @@ async def list_tools() -> list[Tool]:
                         "minimum": 0,
                         "default": 0,
                     },
+                    "overwrite": {
+                        "type": "boolean",
+                        "description": (
+                            "Whether to overwrite existing output files (default: False). "
+                            "If False and output file exists, the operation will fail with an error."
+                        ),
+                        "default": False,
+                    },
                 },
                 "required": ["input_paths"],
             },
@@ -303,6 +311,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             input_paths = arguments["input_paths"]
             output_dir = arguments.get("output_dir")
             padding = arguments.get("padding", 0)
+            overwrite = arguments.get("overwrite", False)
 
             # Validate input paths
             if not isinstance(input_paths, list) or len(input_paths) == 0:
@@ -320,7 +329,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     raise ValueError(f"output_dir must be an absolute path, got: {output_dir}")
                 output_path.mkdir(parents=True, exist_ok=True)
 
-            logger.info(f"Auto-cropping {len(input_paths)} image(s) with padding={padding}px")
+            logger.info(
+                f"Auto-cropping {len(input_paths)} image(s) with padding={padding}px, "
+                f"overwrite={overwrite}"
+            )
 
             # Process images in parallel using asyncio
             async def crop_single_image(input_path: str) -> tuple[str, str | None]:
@@ -343,6 +355,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         input_path,
                         str(output_path) if output_path else None,
                         padding,
+                        overwrite,
                     )
                     return (input_path, result)
                 except Exception as e:
