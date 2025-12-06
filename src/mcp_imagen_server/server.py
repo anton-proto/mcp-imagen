@@ -110,11 +110,6 @@ async def list_tools() -> list[Tool]:
                         "default": 4,
                     },
                 },
-                "oneOf": [
-                    {"required": ["prompt", "output_dir"]},
-                    {"required": ["prompts", "output_dir"]},
-                    {"required": ["prompt_files", "output_dir"]},
-                ],
             },
         ),
         Tool(
@@ -207,10 +202,6 @@ async def list_tools() -> list[Tool]:
                         "default": 4,
                     },
                 },
-                "oneOf": [
-                    {"required": ["input_path"]},
-                    {"required": ["input_paths"]},
-                ],
             },
         ),
         Tool(
@@ -251,7 +242,8 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": (
                             "Whether to overwrite existing output files (default: True). "
-                            "If False and output file exists, the operation will fail with an error."
+                            "If False and output file exists, "
+                            "the operation will fail with an error."
                         ),
                         "default": True,
                     },
