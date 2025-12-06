@@ -6,6 +6,7 @@ from pathlib import Path
 
 from src.mcp_imagen_server.imagen_client import ImagenClient
 
+
 def main():
     """Test image generation."""
     print("Testing Imagen client...")
@@ -55,8 +56,10 @@ def main():
         except Exception as e:
             print(f"\n✗ Error: {e}")
             import traceback
+
             traceback.print_exc()
             return 1
+
 
 if __name__ == "__main__":
     exit(main())
