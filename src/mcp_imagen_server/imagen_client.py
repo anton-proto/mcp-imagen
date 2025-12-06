@@ -10,6 +10,7 @@ from google import genai
 from google.auth import default
 from google.auth.transport.requests import Request
 from google.genai import types
+from PIL import Image
 from rembg import remove
 
 logger = logging.getLogger(__name__)
@@ -348,4 +349,98 @@ class ImagenClient:
 
         except Exception as e:
             logger.error(f"Error removing background: {e}")
+            raise
+
+    @staticmethod
+    def autocrop_image(
+        input_path: str | Path,
+        output_path: str | Path | None = None,
+        padding: int = 0,
+    ) -> str:
+        """Automatically crop an image to remove transparent or empty borders.
+
+        Args:
+            input_path: Path to the input image file
+            output_path: Path to save the cropped image (optional).
+                If not provided, will save with '_cropped' suffix in same directory.
+            padding: Number of pixels to add as padding around cropped content (default: 0)
+
+        Returns:
+            Path to the output cropped image file
+
+        Raises:
+            FileNotFoundError: If input image doesn't exist
+            ValueError: If image is completely transparent or padding is negative
+            Exception: If cropping fails
+        """
+        # Validate input path
+        input_file = Path(input_path)
+        if not input_file.exists():
+            raise FileNotFoundError(f"Input image not found: {input_path}")
+
+        # Validate padding
+        if padding < 0:
+            raise ValueError("padding must be non-negative")
+
+        # Determine output path
+        if output_path is None:
+            output_file = (
+                input_file.parent / f"{input_file.stem}_cropped{input_file.suffix}"
+            )
+        else:
+            output_file = Path(output_path)
+
+        # Ensure output directory exists
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Auto-cropping image: {input_path}")
+        if padding > 0:
+            logger.info(f"Using padding: {padding}px")
+
+        try:
+            # Open the image
+            image = Image.open(input_file)
+
+            # Convert to RGBA if not already (to handle transparency)
+            if image.mode != "RGBA":
+                image = image.convert("RGBA")
+
+            # Get the bounding box of non-transparent pixels
+            bbox = image.getbbox()
+
+            if bbox is None:
+                raise ValueError(
+                    "Image appears to be completely transparent or empty - cannot autocrop"
+                )
+
+            # Add padding if specified
+            if padding > 0:
+                left, upper, right, lower = bbox
+                width, height = image.size
+
+                # Ensure padding doesn't go outside image bounds
+                left = max(0, left - padding)
+                upper = max(0, upper - padding)
+                right = min(width, right + padding)
+                lower = min(height, lower + padding)
+
+                bbox = (left, upper, right, lower)
+
+            # Crop the image
+            cropped = image.crop(bbox)
+
+            # Save the cropped image
+            cropped.save(output_file)
+
+            # Log dimensions
+            original_size = image.size
+            cropped_size = cropped.size
+            logger.info(f"Original size: {original_size[0]}x{original_size[1]}")
+            logger.info(f"Cropped size:  {cropped_size[0]}x{cropped_size[1]}")
+            logger.info(f"Successfully auto-cropped and saved to: {output_file}")
+
+            return str(output_file.absolute())
+
+        except Exception as e:
+            logger.error(f"Error auto-cropping image: {e}")
             raise
