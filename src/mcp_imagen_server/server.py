@@ -34,7 +34,8 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="text-to-image",
             description=(
-                "Generate images from text prompts using Google Imagen API. "
+                "Generate images from text prompt(s) using Google Imagen API. "
+                "Supports single prompt, multiple prompts, or prompts from files. "
                 "Returns paths to generated PNG files."
             ),
             inputSchema={
@@ -42,11 +43,35 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "prompt": {
                         "type": "string",
-                        "description": "Text description of the image to generate",
+                        "description": "Single text prompt (for single image generation)",
+                    },
+                    "prompts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Array of text prompts (for batch processing)",
+                    },
+                    "prompt_files": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Array of file paths containing prompts "
+                            "(one prompt per file, for batch processing)"
+                        ),
                     },
                     "output_dir": {
                         "type": "string",
-                        "description": "Absolute path to directory where images should be saved",
+                        "description": (
+                            "Absolute path to directory for saving images. "
+                            "Used for single prompt or as default for batch."
+                        ),
+                    },
+                    "output_dirs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Array of output directories (one per prompt for batch). "
+                            "If not specified, output_dir is used for all."
+                        ),
                     },
                     "model": {
                         "type": "string",
@@ -64,7 +89,7 @@ async def list_tools() -> list[Tool]:
                     "sample_count": {
                         "type": "integer",
                         "description": (
-                            "Number of images to generate (1-4). Must be 1 for ultra model. "
+                            "Number of images per prompt (1-4). Must be 1 for ultra model. "
                             "Default: 1"
                         ),
                         "minimum": 1,
@@ -77,8 +102,19 @@ async def list_tools() -> list[Tool]:
                         "description": "Aspect ratio of generated images. Default: 1:1",
                         "default": "1:1",
                     },
+                    "max_workers": {
+                        "type": "integer",
+                        "description": "Maximum parallel workers for batch processing (default: 4)",
+                        "minimum": 1,
+                        "maximum": 16,
+                        "default": 4,
+                    },
                 },
-                "required": ["prompt", "output_dir"],
+                "oneOf": [
+                    {"required": ["prompt", "output_dir"]},
+                    {"required": ["prompts", "output_dir"]},
+                    {"required": ["prompt_files", "output_dir"]},
+                ],
             },
         ),
         Tool(
@@ -125,25 +161,56 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="remove-background",
             description=(
-                "Remove background from an image using rembg AI model. "
-                "Returns path to the output image with transparent background."
+                "Remove background from one or more images using rembg AI model. "
+                "Supports both single image and batch processing with parallel execution. "
+                "Returns path(s) to output image(s) with transparent background."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "input_path": {
                         "type": "string",
-                        "description": "Absolute path to the input image file",
-                    },
-                    "output_path": {
-                        "type": "string",
                         "description": (
-                            "Absolute path to save the output image (optional). "
-                            "If not provided, will save with 'nobg_' prefix in same directory."
+                            "Absolute path to a single input image file "
+                            "(for single image processing)"
                         ),
                     },
+                    "input_paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Array of absolute paths to input image files (for batch processing)"
+                        ),
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": (
+                            "Absolute path to directory for saving output images. "
+                            "Required when overwrite=False. "
+                            "Images saved with 'nobg_' prefix when overwrite=False."
+                        ),
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, replace original images with background-removed versions. "
+                            "If false, save to output_dir with 'nobg_' prefix. "
+                            "Default: true"
+                        ),
+                        "default": True,
+                    },
+                    "max_workers": {
+                        "type": "integer",
+                        "description": "Maximum parallel workers for batch processing (default: 4)",
+                        "minimum": 1,
+                        "maximum": 16,
+                        "default": 4,
+                    },
                 },
-                "required": ["input_path"],
+                "oneOf": [
+                    {"required": ["input_path"]},
+                    {"required": ["input_paths"]},
+                ],
             },
         ),
         Tool(
@@ -207,34 +274,105 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     try:
         if name == "text-to-image":
             # Extract parameters for text-to-image
-            prompt = arguments["prompt"]
-            output_dir = arguments["output_dir"]
+            prompt = arguments.get("prompt")
+            prompts = arguments.get("prompts")
+            prompt_files = arguments.get("prompt_files")
+            output_dir = arguments.get("output_dir")
+            output_dirs = arguments.get("output_dirs")
             model: ImagenModel = arguments.get("model", "imagen-4.0-generate-001")
             sample_count = arguments.get("sample_count", 1)
             aspect_ratio: AspectRatio = arguments.get("aspect_ratio", "1:1")
+            max_workers = arguments.get("max_workers", 4)
 
-            # Validate output directory
-            output_path = Path(output_dir)
-            if not output_path.is_absolute():
-                raise ValueError(f"output_dir must be an absolute path, got: {output_dir}")
+            # Validate at least one prompt source
+            if not prompt and not prompts and not prompt_files:
+                raise ValueError("One of prompt, prompts, or prompt_files must be provided")
 
-            logger.info(f"Generating images with prompt: {prompt[:100]}...")
+            # Validate output_dir
+            if output_dir:
+                output_path = Path(output_dir)
+                if not output_path.is_absolute():
+                    raise ValueError(f"output_dir must be an absolute path, got: {output_dir}")
+            elif not output_dirs:
+                raise ValueError("Either output_dir or output_dirs must be provided")
 
-            # Generate images
-            file_paths = imagen_client.generate_images(
-                prompt=prompt,
-                model=model,
-                output_dir=output_dir,
-                sample_count=sample_count,
-                aspect_ratio=aspect_ratio,
-            )
+            # Validate output_dirs if provided
+            if output_dirs:
+                for out_dir in output_dirs:
+                    if not Path(out_dir).is_absolute():
+                        raise ValueError(f"All output_dirs must be absolute, got: {out_dir}")
 
-            # Format response
-            response_text = f"Successfully generated {len(file_paths)} image(s):\n"
-            for i, path in enumerate(file_paths, 1):
-                response_text += f"{i}. {path}\n"
+            # Validate prompt_files if provided
+            if prompt_files:
+                for file_path in prompt_files:
+                    if not Path(file_path).is_absolute():
+                        raise ValueError(f"All prompt_files must be absolute, got: {file_path}")
 
-            return [TextContent(type="text", text=response_text.strip())]
+            # Handle single prompt mode
+            if prompt:
+                logger.info(f"Generating images with prompt: {prompt[:100]}...")
+
+                result = imagen_client.generate_images(
+                    prompt=prompt,
+                    model=model,
+                    output_dir=output_dir,
+                    sample_count=sample_count,
+                    aspect_ratio=aspect_ratio,
+                )
+
+                # Format response for single prompt
+                response_text = f"Successfully generated {len(result)} image(s):\n"
+                for i, path in enumerate(result, 1):
+                    response_text += f"{i}. {path}\n"
+
+                return [TextContent(type="text", text=response_text.strip())]
+
+            # Handle batch mode
+            else:
+                if prompts:
+                    logger.info(f"Generating images for {len(prompts)} prompts in batch mode")
+                    prompt_source = prompts
+                else:
+                    logger.info(
+                        f"Generating images from {len(prompt_files)} prompt files in batch mode"
+                    )
+                    prompt_source = None
+
+                result = imagen_client.generate_images(
+                    prompt=prompt_source,
+                    prompt_files=prompt_files,
+                    model=model,
+                    output_dir=output_dir or ".",
+                    output_dirs=output_dirs,
+                    sample_count=sample_count,
+                    aspect_ratio=aspect_ratio,
+                    max_workers=max_workers,
+                )
+
+                # Format response for batch mode
+                num_prompts = len(prompts) if prompts else len(prompt_files)
+                response_text = (
+                    f"Batch image generation complete:\n"
+                    f"Total prompts: {num_prompts}\n"
+                    f"Successful: {result['successful']}\n"
+                    f"Failed: {result['failed']}\n\n"
+                )
+
+                # Add details for each prompt
+                for i, item in enumerate(result["results"], 1):
+                    prompt_preview = item["prompt"][:50] + (
+                        "..." if len(item["prompt"]) > 50 else ""
+                    )
+                    if item["error"]:
+                        error_msg = item["error"]
+                        response_text += f"{i}. ❌ '{prompt_preview}' - Error: {error_msg}\n"
+                    else:
+                        num_files = len(item["files"])
+                        response_text += f"{i}. ✓ '{prompt_preview}' - {num_files} image(s)\n"
+                        for file_path in item["files"]:
+                            response_text += f"   → {file_path}\n"
+
+                return [TextContent(type="text", text=response_text.strip())]
 
         elif name == "style-to-image":
             # Extract parameters for style-to-image
@@ -278,33 +416,111 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=response_text.strip())]
 
         elif name == "remove-background":
-            # Extract parameters for remove-background
-            input_path = arguments["input_path"]
-            output_path = arguments.get("output_path")
+            # Determine if single or batch processing
+            input_path = arguments.get("input_path")
+            input_paths = arguments.get("input_paths")
+            output_dir = arguments.get("output_dir")
+            overwrite = arguments.get("overwrite", True)
+            max_workers = arguments.get("max_workers", 4)
 
-            # Validate input path
-            input_file_path = Path(input_path)
-            if not input_file_path.is_absolute():
-                raise ValueError(f"input_path must be an absolute path, got: {input_path}")
+            # Validate that either input_path or input_paths is provided
+            if not input_path and not input_paths:
+                raise ValueError("Either input_path or input_paths must be provided")
 
-            # Validate output path if provided
-            if output_path:
-                output_file_path = Path(output_path)
-                if not output_file_path.is_absolute():
-                    raise ValueError(f"output_path must be an absolute path, got: {output_path}")
+            if input_path and input_paths:
+                raise ValueError("Cannot specify both input_path and input_paths")
 
-            logger.info(f"Removing background from: {input_path}")
+            # Validate output_dir requirements
+            if not overwrite and not output_dir:
+                raise ValueError("output_dir is required when overwrite=False")
 
-            # Remove background
-            output_file = ImagenClient.remove_background(
-                input_path=input_path,
-                output_path=output_path,
-            )
+            # Handle single image processing
+            if input_path:
+                # Validate input path
+                input_file_path = Path(input_path)
+                if not input_file_path.is_absolute():
+                    raise ValueError(f"input_path must be an absolute path, got: {input_path}")
 
-            # Format response
-            response_text = f"Successfully removed background from image:\nOutput: {output_file}"
+                # Validate output_dir if provided
+                if output_dir:
+                    output_dir_path = Path(output_dir)
+                    if not output_dir_path.is_absolute():
+                        raise ValueError(f"output_dir must be an absolute path, got: {output_dir}")
 
-            return [TextContent(type="text", text=response_text)]
+                mode_desc = "overwrite mode" if overwrite else "preserve mode"
+                logger.info(f"Removing background from single image ({mode_desc}): {input_path}")
+
+                # Remove background
+                result = ImagenClient.remove_background(
+                    input_paths=input_path,
+                    output_dir=output_dir,
+                    overwrite=overwrite,
+                )
+
+                # Format response for single image
+                if overwrite:
+                    response_text = (
+                        f"Successfully removed background (overwrote original):\n"
+                        f"File: {result['output']}"
+                    )
+                else:
+                    response_text = (
+                        f"Successfully removed background:\n"
+                        f"Input: {result['input']}\n"
+                        f"Output: {result['output']}"
+                    )
+
+                return [TextContent(type="text", text=response_text)]
+
+            # Handle batch processing
+            else:
+                # Validate input_paths
+                if not isinstance(input_paths, list) or len(input_paths) == 0:
+                    raise ValueError("input_paths must be a non-empty array")
+
+                # Validate output_dir if provided
+                if output_dir:
+                    output_dir_path = Path(output_dir)
+                    if not output_dir_path.is_absolute():
+                        raise ValueError(f"output_dir must be an absolute path, got: {output_dir}")
+
+                # Validate all input paths are absolute
+                for path in input_paths:
+                    if not Path(path).is_absolute():
+                        raise ValueError(f"All input paths must be absolute, got: {path}")
+
+                mode_desc = "overwrite mode" if overwrite else "preserve mode"
+                logger.info(
+                    f"Removing background from {len(input_paths)} images "
+                    f"in batch mode ({mode_desc})"
+                )
+
+                # Remove backgrounds in parallel
+                result = ImagenClient.remove_background(
+                    input_paths=input_paths,
+                    output_dir=output_dir,
+                    overwrite=overwrite,
+                    max_workers=max_workers,
+                )
+
+                # Format response for batch processing
+                response_text = (
+                    f"Batch background removal complete:\n"
+                    f"Total: {len(input_paths)} images\n"
+                    f"Successful: {result['successful']}\n"
+                    f"Failed: {result['failed']}\n\n"
+                )
+
+                # Add details for each image
+                for i, item in enumerate(result["results"], 1):
+                    input_name = Path(item["input"]).name
+                    if item["error"]:
+                        error_msg = item["error"]
+                        response_text += f"{i}. ❌ {input_name} - Error: {error_msg}\n"
+                    else:
+                        response_text += f"{i}. ✓ {input_name} → {item['output']}\n"
+
+                return [TextContent(type="text", text=response_text.strip())]
 
         elif name == "autocrop":
             # Extract parameters for autocrop
