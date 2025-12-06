@@ -247,7 +247,7 @@ async def run_server():
         sys.exit(1)
 
     logger.info(f"Using Vertex AI with project={project}, location={location}")
-    imagen_client = ImagenClient(project=project, location=location)
+    imagen_client = ImagenClient(vertexai=True, project=project, location=location)
 
     # Run the server
     async with stdio_server() as (read_stream, write_stream):
