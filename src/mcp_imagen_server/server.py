@@ -134,46 +134,37 @@ async def run_server():
     """Run the MCP server."""
     global imagen_client
 
-    # Check for authentication options
-    api_key = os.getenv("GOOGLE_API_KEY")
-    use_vertexai = os.getenv("USE_VERTEXAI", "").lower() == "true"
+    # Get Vertex AI configuration
     project = os.getenv("GOOGLE_CLOUD_PROJECT")
     location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
-    # Initialize Imagen client based on available credentials
-    if use_vertexai or (not api_key and project):
-        # Use Vertex AI if explicitly requested or if no API key but project is available
-        if not project:
-            # Try to get project from gcloud config
-            try:
-                import subprocess
+    # Try to get project from gcloud config if not set
+    if not project:
+        try:
+            import subprocess
 
-                result = subprocess.run(
-                    ["gcloud", "config", "get-value", "project"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    project = result.stdout.strip()
-                    logger.info(f"Using project from gcloud config: {project}")
-            except Exception as e:
-                logger.warning(f"Could not get project from gcloud: {e}")
-
-        if not project:
-            logger.error(
-                "No authentication configured. Please either:\n"
-                "1. Set GOOGLE_API_KEY environment variable for Gemini API, or\n"
-                "2. Set GOOGLE_CLOUD_PROJECT or configure gcloud default project for Vertex AI"
+            result = subprocess.run(
+                ["gcloud", "config", "get-value", "project"],
+                capture_output=True,
+                text=True,
+                check=False,
             )
-            sys.exit(1)
+            if result.returncode == 0 and result.stdout.strip():
+                project = result.stdout.strip()
+                logger.info(f"Using project from gcloud config: {project}")
+        except Exception as e:
+            logger.warning(f"Could not get project from gcloud: {e}")
 
-        logger.info(f"Using Vertex AI with project={project}, location={location}")
-        imagen_client = ImagenClient(vertexai=True, project=project, location=location)
-    else:
-        # Use Gemini API with explicit API key
-        logger.info("Using Gemini API")
-        imagen_client = ImagenClient(vertexai=False, api_key=api_key)
+    if not project:
+        logger.error(
+            "No Google Cloud project configured. Please either:\n"
+            "1. Set GOOGLE_CLOUD_PROJECT environment variable, or\n"
+            "2. Configure gcloud default project: gcloud config set project PROJECT_ID"
+        )
+        sys.exit(1)
+
+    logger.info(f"Using Vertex AI with project={project}, location={location}")
+    imagen_client = ImagenClient(project=project, location=location)
 
     # Run the server
     async with stdio_server() as (read_stream, write_stream):

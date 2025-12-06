@@ -1,7 +1,6 @@
 """Google Imagen API client for image generation."""
 
 import logging
-import os
 from pathlib import Path
 from typing import Literal
 
@@ -22,52 +21,23 @@ AspectRatio = Literal["1:1", "3:4", "4:3", "9:16", "16:9"]
 
 
 class ImagenClient:
-    """Client for Google Imagen API image generation."""
+    """Client for Google Imagen API image generation via Vertex AI."""
 
     def __init__(
         self,
-        vertexai: bool = False,
-        project: str | None = None,
+        project: str,
         location: str = "us-central1",
-        api_key: str | None = None,
     ):
-        """Initialize the Imagen client.
+        """Initialize the Imagen client with Vertex AI and ADC.
 
         Args:
-            vertexai: Whether to use Vertex AI (True) or Gemini API (False)
-            project: Google Cloud project ID (required for Vertex AI)
+            project: Google Cloud project ID
             location: Google Cloud location (default: us-central1)
-            api_key: Google API key for Gemini API (optional, uses ADC if not provided)
         """
-        if vertexai:
-            if not project:
-                raise ValueError("project is required when using Vertex AI")
-            self.client = genai.Client(vertexai=True, project=project, location=location)
-            logger.info(
-                f"Initialized Imagen client with Vertex AI (project={project}, location={location})"
-            )
-        else:
-            # Use provided api_key or fall back to environment variable or ADC
-            if api_key:
-                self.client = genai.Client(api_key=api_key)
-                logger.info("Initialized Imagen client with Gemini API (explicit API key)")
-            else:
-                # Try to get API key from environment
-                env_api_key = os.getenv("GOOGLE_API_KEY")
-                if env_api_key:
-                    self.client = genai.Client(api_key=env_api_key)
-                    logger.info("Initialized Imagen client with Gemini API (API key from env)")
-                else:
-                    # No API key provided, will use Application Default Credentials
-                    try:
-                        self.client = genai.Client()
-                        logger.info("Initialized Imagen client with Gemini API (ADC)")
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to initialize Imagen client: {e}. "
-                            "Please set GOOGLE_API_KEY environment variable or configure ADC."
-                        )
-                        raise
+        self.client = genai.Client(vertexai=True, project=project, location=location)
+        logger.info(
+            f"Initialized Imagen client with Vertex AI (project={project}, location={location})"
+        )
 
     def generate_images(
         self,

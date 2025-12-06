@@ -16,13 +16,12 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         print(f"Output directory: {tmpdir}")
 
-        # Detect authentication method automatically
-        api_key = os.getenv("GOOGLE_API_KEY")
-        use_vertexai = os.getenv("USE_VERTEXAI", "").lower() == "true"
+        # Get project configuration
         project = os.getenv("GOOGLE_CLOUD_PROJECT")
+        location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
         # Auto-detect project from gcloud if not set
-        if not project and not api_key:
+        if not project:
             try:
                 result = subprocess.run(
                     ["gcloud", "config", "get-value", "project"],
@@ -35,17 +34,14 @@ def main():
             except Exception:
                 pass
 
-        # Initialize client based on available credentials
-        if use_vertexai or (not api_key and project):
-            location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-            print(f"Using Vertex AI with project: {project}, location: {location}")
-            client = ImagenClient(vertexai=True, project=project, location=location)
-        else:
-            if api_key:
-                print("Using Gemini API with API key")
-            else:
-                print("Using Gemini API with ADC")
-            client = ImagenClient(vertexai=False, api_key=api_key)
+        if not project:
+            print("Error: No Google Cloud project configured.")
+            print("Please set GOOGLE_CLOUD_PROJECT or configure gcloud default project.")
+            return 1
+
+        # Initialize client with Vertex AI
+        print(f"Using Vertex AI with project: {project}, location: {location}")
+        client = ImagenClient(project=project, location=location)
 
         # Test prompt
         prompt = "A cute robot holding a sign that says 'Hello MCP'"
