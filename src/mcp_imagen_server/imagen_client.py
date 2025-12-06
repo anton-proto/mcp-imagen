@@ -10,6 +10,7 @@ from google import genai
 from google.auth import default
 from google.auth.transport.requests import Request
 from google.genai import types
+from rembg import remove
 
 logger = logging.getLogger(__name__)
 
@@ -292,4 +293,59 @@ class ImagenClient:
 
         except Exception as e:
             logger.error(f"Error generating styled images: {e}")
+            raise
+
+    @staticmethod
+    def remove_background(
+        input_path: str | Path,
+        output_path: str | Path | None = None,
+    ) -> str:
+        """Remove background from an image using rembg.
+
+        Args:
+            input_path: Path to the input image file
+            output_path: Path to save the output image (optional).
+                If not provided, will save with 'nobg_' prefix in same directory.
+
+        Returns:
+            Path to the output image file with background removed
+
+        Raises:
+            FileNotFoundError: If input image doesn't exist
+            Exception: If background removal fails
+        """
+        # Validate input path
+        input_file = Path(input_path)
+        if not input_file.exists():
+            raise FileNotFoundError(f"Input image not found: {input_path}")
+
+        # Determine output path
+        if output_path is None:
+            output_file = input_file.parent / f"nobg_{input_file.name}"
+        else:
+            output_file = Path(output_path)
+
+        # Ensure output directory exists
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Removing background from: {input_path}")
+        logger.info(f"Output will be saved to: {output_file}")
+
+        try:
+            # Open input image
+            with open(input_file, "rb") as f:
+                input_image = f.read()
+
+            # Remove background
+            output_image = remove(input_image)
+
+            # Save output image
+            with open(output_file, "wb") as f:
+                f.write(output_image)
+
+            logger.info(f"Successfully removed background and saved to: {output_file}")
+            return str(output_file.absolute())
+
+        except Exception as e:
+            logger.error(f"Error removing background: {e}")
             raise

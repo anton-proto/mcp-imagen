@@ -5,6 +5,8 @@ An MCP (Model Context Protocol) server for Google Imagen API, enabling text-to-i
 ## Features
 
 - **Text-to-Image Generation**: Generate high-quality images from text prompts using Imagen 4.0 models
+- **Style Transfer**: Generate images following the style of a reference image using Imagen 3 Customization
+- **Background Removal**: Remove backgrounds from images using rembg AI model
 - **Multiple Models**: Support for three Imagen variants:
   - `imagen-4.0-generate-001` (default) - Standard quality and speed
   - `imagen-4.0-fast-generate-001` - Faster generation
@@ -12,7 +14,7 @@ An MCP (Model Context Protocol) server for Google Imagen API, enabling text-to-i
 - **Flexible Configuration**:
   - Customizable aspect ratios (1:1, 3:4, 4:3, 9:16, 16:9)
   - Batch generation (1-4 images per request)
-  - PNG output format
+  - PNG output format with transparency support
 - **Authentication Options**:
   - Google Cloud Default Application Credentials
   - Vertex AI or Gemini API
@@ -141,7 +143,9 @@ Add this configuration to your Claude Desktop config file:
 
 The server implements the standard MCP protocol and can be used with any MCP-compatible client.
 
-## MCP Tool: text-to-image
+## MCP Tools
+
+### text-to-image
 
 Generates images from text prompts using Google Imagen API.
 
@@ -177,6 +181,62 @@ In Claude Desktop or other MCP client:
 
 ```
 Generate an image of "A serene mountain landscape at sunset with a lake reflecting the sky" and save it to /tmp/images/
+```
+
+### style-to-image
+
+Generates images following the style of a reference image using Imagen 3 Customization.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `prompt` | string | Yes | Text description of the image content to generate |
+| `style_image_path` | string | Yes | Absolute path to the style reference image file |
+| `style_description` | string | Yes | Description of the style (e.g., "watercolor painting style", "neon sign style", "mosaic style") |
+| `output_dir` | string | Yes | Absolute path to directory where images should be saved |
+| `sample_count` | integer | No | Number of images to generate (1-4). Default: 1 |
+
+#### Response
+
+Returns a text response with paths to generated styled PNG files.
+
+#### Example Usage
+
+```
+Generate an image of "A cat sitting on a windowsill" in the style of the image at /path/to/watercolor.png (watercolor painting style) and save it to /tmp/images/
+```
+
+### remove-background
+
+Removes the background from an image using the rembg AI model, producing a PNG with transparent background.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `input_path` | string | Yes | Absolute path to the input image file |
+| `output_path` | string | No | Absolute path to save the output image. If not provided, will save with 'nobg_' prefix in same directory |
+
+#### Response
+
+Returns a text response with the path to the output image with transparent background:
+
+```
+Successfully removed background from image:
+Output: /path/to/output/nobg_image.png
+```
+
+#### Example Usage
+
+```
+Remove the background from /home/user/images/photo.png
+```
+
+Or with custom output path:
+
+```
+Remove the background from /home/user/images/photo.png and save it to /home/user/outputs/transparent.png
 ```
 
 ## Development

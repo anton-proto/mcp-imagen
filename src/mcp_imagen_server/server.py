@@ -122,16 +122,40 @@ async def list_tools() -> list[Tool]:
                 "required": ["prompt", "style_image_path", "style_description", "output_dir"],
             },
         ),
+        Tool(
+            name="remove-background",
+            description=(
+                "Remove background from an image using rembg AI model. "
+                "Returns path to the output image with transparent background."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "input_path": {
+                        "type": "string",
+                        "description": "Absolute path to the input image file",
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": (
+                            "Absolute path to save the output image (optional). "
+                            "If not provided, will save with 'nobg_' prefix in same directory."
+                        ),
+                    },
+                },
+                "required": ["input_path"],
+            },
+        ),
     ]
 
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """Handle tool calls."""
-    if name not in ["text-to-image", "style-to-image"]:
+    if name not in ["text-to-image", "style-to-image", "remove-background"]:
         raise ValueError(f"Unknown tool: {name}")
 
-    if not imagen_client:
+    if not imagen_client and name != "remove-background":
         raise RuntimeError("Imagen client not initialized")
 
     try:
@@ -207,8 +231,37 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             return [TextContent(type="text", text=response_text.strip())]
 
+        elif name == "remove-background":
+            # Extract parameters for remove-background
+            input_path = arguments["input_path"]
+            output_path = arguments.get("output_path")
+
+            # Validate input path
+            input_file_path = Path(input_path)
+            if not input_file_path.is_absolute():
+                raise ValueError(f"input_path must be an absolute path, got: {input_path}")
+
+            # Validate output path if provided
+            if output_path:
+                output_file_path = Path(output_path)
+                if not output_file_path.is_absolute():
+                    raise ValueError(f"output_path must be an absolute path, got: {output_path}")
+
+            logger.info(f"Removing background from: {input_path}")
+
+            # Remove background
+            output_file = ImagenClient.remove_background(
+                input_path=input_path,
+                output_path=output_path,
+            )
+
+            # Format response
+            response_text = f"Successfully removed background from image:\nOutput: {output_file}"
+
+            return [TextContent(type="text", text=response_text)]
+
     except Exception as e:
-        error_msg = f"Error generating images: {str(e)}"
+        error_msg = f"Error processing request: {str(e)}"
         logger.error(error_msg, exc_info=True)
         return [TextContent(type="text", text=error_msg)]
 

@@ -9,7 +9,9 @@ dependencies = [
     "google-genai>=1.53.0",
     "httpx>=0.28.1",
     "mcp>=1.23.1",
+    "onnxruntime>=1.23.2",
     "pillow>=12.0.0",
+    "rembg>=2.0.69",
 ]
 
 [project.scripts]
