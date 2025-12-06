@@ -226,8 +226,9 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": (
                             "Absolute path to output directory (optional). "
-                            "If not provided, cropped images will be saved in the same directory "
-                            "as the input files with '_cropped' suffix."
+                            "If not provided and overwrite=True, input files will be overwritten. "
+                            "If not provided and overwrite=False, files will be saved in the same "
+                            "directory with '_cropped' suffix."
                         ),
                     },
                     "padding": {
@@ -546,13 +547,23 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             async def crop_single_image(input_path: str) -> tuple[str, str | None]:
                 """Crop a single image and return (input_path, output_path or error)."""
                 try:
-                    # Determine output path
-                    if output_dir:
+                    # Determine output path based on overwrite and output_dir
+                    if overwrite and not output_dir:
+                        # When overwrite=True and no output_dir, overwrite the original file
+                        output_path = input_path
+                    elif output_dir:
+                        # When output_dir is specified, save to output_dir
                         input_file = Path(input_path)
-                        output_path = (
-                            Path(output_dir) / f"{input_file.stem}_cropped{input_file.suffix}"
-                        )
+                        if overwrite:
+                            # When overwrite=True, use the original filename
+                            output_path = Path(output_dir) / input_file.name
+                        else:
+                            # When overwrite=False, use _cropped suffix
+                            output_path = (
+                                Path(output_dir) / f"{input_file.stem}_cropped{input_file.suffix}"
+                            )
                     else:
+                        # When overwrite=False and no output_dir, use _cropped suffix
                         output_path = None
 
                     # Run crop in thread pool to avoid blocking

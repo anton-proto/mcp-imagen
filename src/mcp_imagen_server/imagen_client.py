@@ -605,7 +605,9 @@ class ImagenClient:
         Args:
             input_path: Path to the input image file
             output_path: Path to save the cropped image (optional).
-                If not provided, will save with '_cropped' suffix in same directory.
+                If not provided:
+                - When overwrite=True: overwrites the input file
+                - When overwrite=False: saves with '_cropped' suffix in same directory
             padding: Number of pixels to add as padding around cropped content (default: 0)
             overwrite: Whether to overwrite existing output files (default: True).
                 If False and output file exists, raises FileExistsError.
@@ -630,6 +632,7 @@ class ImagenClient:
 
         # Determine output path
         if output_path is None:
+            # When output_path is None, save with _cropped suffix in same directory
             output_file = input_file.parent / f"{input_file.stem}_cropped{input_file.suffix}"
         else:
             output_file = Path(output_path)
