@@ -1,10 +1,12 @@
 """Quick test script for the Imagen client."""
 
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 
 from src.mcp_imagen_server.imagen_client import ImagenClient
+
 
 def main():
     """Test image generation."""
@@ -14,16 +16,36 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         print(f"Output directory: {tmpdir}")
 
-        # Initialize client (using Gemini API by default, or Vertex AI if configured)
-        use_vertexai = os.getenv("USE_VERTEXAI", "false").lower() == "true"
-        project = os.getenv("GOOGLE_CLOUD_PROJECT", "wired-balm-187912")
+        # Detect authentication method automatically
+        api_key = os.getenv("GOOGLE_API_KEY")
+        use_vertexai = os.getenv("USE_VERTEXAI", "").lower() == "true"
+        project = os.getenv("GOOGLE_CLOUD_PROJECT")
 
-        if use_vertexai:
-            print(f"Using Vertex AI with project: {project}")
-            client = ImagenClient(vertexai=True, project=project)
+        # Auto-detect project from gcloud if not set
+        if not project and not api_key:
+            try:
+                result = subprocess.run(
+                    ["gcloud", "config", "get-value", "project"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    project = result.stdout.strip()
+            except Exception:
+                pass
+
+        # Initialize client based on available credentials
+        if use_vertexai or (not api_key and project):
+            location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+            print(f"Using Vertex AI with project: {project}, location: {location}")
+            client = ImagenClient(vertexai=True, project=project, location=location)
         else:
-            print("Using Gemini API")
-            client = ImagenClient(vertexai=False)
+            if api_key:
+                print("Using Gemini API with API key")
+            else:
+                print("Using Gemini API with ADC")
+            client = ImagenClient(vertexai=False, api_key=api_key)
 
         # Test prompt
         prompt = "A cute robot holding a sign that says 'Hello MCP'"
@@ -55,8 +77,10 @@ def main():
         except Exception as e:
             print(f"\n✗ Error: {e}")
             import traceback
+
             traceback.print_exc()
             return 1
+
 
 if __name__ == "__main__":
     exit(main())

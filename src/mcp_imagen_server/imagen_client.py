@@ -1,6 +1,7 @@
 """Google Imagen API client for image generation."""
 
 import logging
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -28,6 +29,7 @@ class ImagenClient:
         vertexai: bool = False,
         project: str | None = None,
         location: str = "us-central1",
+        api_key: str | None = None,
     ):
         """Initialize the Imagen client.
 
@@ -35,6 +37,7 @@ class ImagenClient:
             vertexai: Whether to use Vertex AI (True) or Gemini API (False)
             project: Google Cloud project ID (required for Vertex AI)
             location: Google Cloud location (default: us-central1)
+            api_key: Google API key for Gemini API (optional, uses ADC if not provided)
         """
         if vertexai:
             if not project:
@@ -44,8 +47,27 @@ class ImagenClient:
                 f"Initialized Imagen client with Vertex AI (project={project}, location={location})"
             )
         else:
-            self.client = genai.Client()
-            logger.info("Initialized Imagen client with Gemini API")
+            # Use provided api_key or fall back to environment variable or ADC
+            if api_key:
+                self.client = genai.Client(api_key=api_key)
+                logger.info("Initialized Imagen client with Gemini API (explicit API key)")
+            else:
+                # Try to get API key from environment
+                env_api_key = os.getenv("GOOGLE_API_KEY")
+                if env_api_key:
+                    self.client = genai.Client(api_key=env_api_key)
+                    logger.info("Initialized Imagen client with Gemini API (API key from env)")
+                else:
+                    # No API key provided, will use Application Default Credentials
+                    try:
+                        self.client = genai.Client()
+                        logger.info("Initialized Imagen client with Gemini API (ADC)")
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to initialize Imagen client: {e}. "
+                            "Please set GOOGLE_API_KEY environment variable or configure ADC."
+                        )
+                        raise
 
     def generate_images(
         self,
