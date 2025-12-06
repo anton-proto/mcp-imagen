@@ -356,6 +356,7 @@ class ImagenClient:
         input_path: str | Path,
         output_path: str | Path | None = None,
         padding: int = 0,
+        overwrite: bool = False,
     ) -> str:
         """Automatically crop an image to remove transparent or empty borders.
 
@@ -364,12 +365,15 @@ class ImagenClient:
             output_path: Path to save the cropped image (optional).
                 If not provided, will save with '_cropped' suffix in same directory.
             padding: Number of pixels to add as padding around cropped content (default: 0)
+            overwrite: Whether to overwrite existing output files (default: False).
+                If False and output file exists, raises FileExistsError.
 
         Returns:
             Path to the output cropped image file
 
         Raises:
             FileNotFoundError: If input image doesn't exist
+            FileExistsError: If output file exists and overwrite=False
             ValueError: If image is completely transparent or padding is negative
             Exception: If cropping fails
         """
@@ -390,12 +394,21 @@ class ImagenClient:
         else:
             output_file = Path(output_path)
 
+        # Check if output file exists and handle overwrite
+        if output_file.exists() and not overwrite:
+            raise FileExistsError(
+                f"Output file already exists: {output_file}. "
+                "Use overwrite=True to overwrite existing files."
+            )
+
         # Ensure output directory exists
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Auto-cropping image: {input_path}")
         if padding > 0:
             logger.info(f"Using padding: {padding}px")
+        if output_file.exists():
+            logger.info(f"Overwriting existing file: {output_file}")
 
         try:
             # Open the image
