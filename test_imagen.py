@@ -1,6 +1,7 @@
 """Quick test script for the Imagen client."""
 
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -15,16 +16,32 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         print(f"Output directory: {tmpdir}")
 
-        # Initialize client (using Gemini API by default, or Vertex AI if configured)
-        use_vertexai = os.getenv("USE_VERTEXAI", "false").lower() == "true"
-        project = os.getenv("GOOGLE_CLOUD_PROJECT", "wired-balm-187912")
+        # Get project configuration
+        project = os.getenv("GOOGLE_CLOUD_PROJECT")
+        location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
-        if use_vertexai:
-            print(f"Using Vertex AI with project: {project}")
-            client = ImagenClient(vertexai=True, project=project)
-        else:
-            print("Using Gemini API")
-            client = ImagenClient(vertexai=False)
+        # Auto-detect project from gcloud if not set
+        if not project:
+            try:
+                result = subprocess.run(
+                    ["gcloud", "config", "get-value", "project"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    project = result.stdout.strip()
+            except Exception:
+                pass
+
+        if not project:
+            print("Error: No Google Cloud project configured.")
+            print("Please set GOOGLE_CLOUD_PROJECT or configure gcloud default project.")
+            return 1
+
+        # Initialize client with Vertex AI
+        print(f"Using Vertex AI with project: {project}, location: {location}")
+        client = ImagenClient(project=project, location=location)
 
         # Test prompt
         prompt = "A cute robot holding a sign that says 'Hello MCP'"

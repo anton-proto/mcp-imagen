@@ -217,21 +217,37 @@ async def run_server():
     """Run the MCP server."""
     global imagen_client
 
-    # Check for Vertex AI configuration
-    use_vertexai = os.getenv("USE_VERTEXAI", "false").lower() == "true"
+    # Get Vertex AI configuration
     project = os.getenv("GOOGLE_CLOUD_PROJECT")
     location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
-    # Initialize Imagen client
-    if use_vertexai:
-        if not project:
-            logger.error("GOOGLE_CLOUD_PROJECT environment variable is required for Vertex AI")
-            sys.exit(1)
-        logger.info(f"Using Vertex AI with project={project}, location={location}")
-        imagen_client = ImagenClient(vertexai=True, project=project, location=location)
-    else:
-        logger.info("Using Gemini API with default credentials")
-        imagen_client = ImagenClient(vertexai=False)
+    # Try to get project from gcloud config if not set
+    if not project:
+        try:
+            import subprocess
+
+            result = subprocess.run(
+                ["gcloud", "config", "get-value", "project"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                project = result.stdout.strip()
+                logger.info(f"Using project from gcloud config: {project}")
+        except Exception as e:
+            logger.warning(f"Could not get project from gcloud: {e}")
+
+    if not project:
+        logger.error(
+            "No Google Cloud project configured. Please either:\n"
+            "1. Set GOOGLE_CLOUD_PROJECT environment variable, or\n"
+            "2. Configure gcloud default project: gcloud config set project PROJECT_ID"
+        )
+        sys.exit(1)
+
+    logger.info(f"Using Vertex AI with project={project}, location={location}")
+    imagen_client = ImagenClient(project=project, location=location)
 
     # Run the server
     async with stdio_server() as (read_stream, write_stream):
