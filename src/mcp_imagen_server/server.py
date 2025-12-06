@@ -146,16 +146,54 @@ async def list_tools() -> list[Tool]:
                 "required": ["input_path"],
             },
         ),
+        Tool(
+            name="autocrop",
+            description=(
+                "Automatically crop images to remove transparent or empty borders. "
+                "Supports single or batch processing with parallel execution. "
+                "Returns paths to cropped images."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "input_paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "List of absolute paths to input image files to crop. "
+                            "Can be a single file or multiple files for batch processing."
+                        ),
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": (
+                            "Absolute path to output directory (optional). "
+                            "If not provided, cropped images will be saved in the same directory "
+                            "as the input files with '_cropped' suffix."
+                        ),
+                    },
+                    "padding": {
+                        "type": "integer",
+                        "description": (
+                            "Number of pixels to add as padding around cropped content (default: 0)"
+                        ),
+                        "minimum": 0,
+                        "default": 0,
+                    },
+                },
+                "required": ["input_paths"],
+            },
+        ),
     ]
 
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """Handle tool calls."""
-    if name not in ["text-to-image", "style-to-image", "remove-background"]:
+    if name not in ["text-to-image", "style-to-image", "remove-background", "autocrop"]:
         raise ValueError(f"Unknown tool: {name}")
 
-    if not imagen_client and name != "remove-background":
+    if not imagen_client and name not in ["remove-background", "autocrop"]:
         raise RuntimeError("Imagen client not initialized")
 
     try:
@@ -259,6 +297,80 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             response_text = f"Successfully removed background from image:\nOutput: {output_file}"
 
             return [TextContent(type="text", text=response_text)]
+
+        elif name == "autocrop":
+            # Extract parameters for autocrop
+            input_paths = arguments["input_paths"]
+            output_dir = arguments.get("output_dir")
+            padding = arguments.get("padding", 0)
+
+            # Validate input paths
+            if not isinstance(input_paths, list) or len(input_paths) == 0:
+                raise ValueError("input_paths must be a non-empty list")
+
+            for input_path in input_paths:
+                input_file_path = Path(input_path)
+                if not input_file_path.is_absolute():
+                    raise ValueError(f"All input paths must be absolute, got: {input_path}")
+
+            # Validate output directory if provided
+            if output_dir:
+                output_path = Path(output_dir)
+                if not output_path.is_absolute():
+                    raise ValueError(f"output_dir must be an absolute path, got: {output_dir}")
+                output_path.mkdir(parents=True, exist_ok=True)
+
+            logger.info(f"Auto-cropping {len(input_paths)} image(s) with padding={padding}px")
+
+            # Process images in parallel using asyncio
+            async def crop_single_image(input_path: str) -> tuple[str, str | None]:
+                """Crop a single image and return (input_path, output_path or error)."""
+                try:
+                    # Determine output path
+                    if output_dir:
+                        input_file = Path(input_path)
+                        output_path = (
+                            Path(output_dir) / f"{input_file.stem}_cropped{input_file.suffix}"
+                        )
+                    else:
+                        output_path = None
+
+                    # Run crop in thread pool to avoid blocking
+                    loop = asyncio.get_event_loop()
+                    result = await loop.run_in_executor(
+                        None,
+                        ImagenClient.autocrop_image,
+                        input_path,
+                        str(output_path) if output_path else None,
+                        padding,
+                    )
+                    return (input_path, result)
+                except Exception as e:
+                    logger.error(f"Error cropping {input_path}: {e}")
+                    return (input_path, f"Error: {str(e)}")
+
+            # Process all images in parallel
+            results = await asyncio.gather(*[crop_single_image(path) for path in input_paths])
+
+            # Separate successful and failed results
+            successful = [(inp, out) for inp, out in results if not out.startswith("Error:")]
+            failed = [(inp, out) for inp, out in results if out.startswith("Error:")]
+
+            # Format response
+            response_text = f"Processed {len(input_paths)} image(s):\n"
+            response_text += f"Successfully cropped: {len(successful)}\n"
+
+            if successful:
+                response_text += "\nCropped images:\n"
+                for i, (_, output_path) in enumerate(successful, 1):
+                    response_text += f"{i}. {output_path}\n"
+
+            if failed:
+                response_text += f"\nFailed: {len(failed)}\n"
+                for inp, error in failed:
+                    response_text += f"- {Path(inp).name}: {error}\n"
+
+            return [TextContent(type="text", text=response_text.strip())]
 
     except Exception as e:
         error_msg = f"Error processing request: {str(e)}"

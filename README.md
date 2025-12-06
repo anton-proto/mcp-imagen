@@ -7,6 +7,7 @@ An MCP (Model Context Protocol) server for Google Imagen API, enabling text-to-i
 - **Text-to-Image Generation**: Generate high-quality images from text prompts using Imagen 4.0 models
 - **Style Transfer**: Generate images following the style of a reference image using Imagen 3 Customization
 - **Background Removal**: Remove backgrounds from images using rembg AI model
+- **Auto-Crop**: Automatically crop images to remove transparent or empty borders with batch processing support
 - **Multiple Models**: Support for three Imagen variants:
   - `imagen-4.0-generate-001` (default) - Standard quality and speed
   - `imagen-4.0-fast-generate-001` - Faster generation
@@ -237,6 +238,71 @@ Or with custom output path:
 
 ```
 Remove the background from /home/user/images/photo.png and save it to /home/user/outputs/transparent.png
+```
+
+### autocrop
+
+Automatically crop images to remove transparent or empty borders. Supports both single image and batch processing with parallel execution.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `input_paths` | array of strings | Yes | List of absolute paths to input image files to crop |
+| `output_dir` | string | No | Absolute path to output directory. If not provided, cropped images will be saved in the same directory as input files with '_cropped' suffix |
+| `padding` | integer | No | Number of pixels to add as padding around cropped content. Default: 0 |
+
+#### Response
+
+Returns a text response with processing summary and paths to cropped images:
+
+```
+Processed 3 image(s):
+Successfully cropped: 3
+
+Cropped images:
+1. /output/dir/image1_cropped.png
+2. /output/dir/image2_cropped.png
+3. /output/dir/image3_cropped.png
+```
+
+If any images fail to process, they will be listed separately:
+
+```
+Processed 3 image(s):
+Successfully cropped: 2
+
+Cropped images:
+1. /output/dir/image1_cropped.png
+2. /output/dir/image2_cropped.png
+
+Failed: 1
+- image3.png: Error: Image appears to be completely transparent or empty - cannot autocrop
+```
+
+#### Features
+
+- **Parallel Processing**: Multiple images are processed concurrently for better performance
+- **Batch Support**: Process multiple images in a single call
+- **Flexible Output**: Save to a specific directory or use default location
+- **Padding Control**: Add padding around cropped content if needed
+- **Transparency Aware**: Automatically detects and crops around non-transparent pixels
+
+#### Example Usage
+
+Single image:
+```
+Autocrop the image at /home/user/images/logo.png
+```
+
+Multiple images with output directory:
+```
+Autocrop these images: ["/home/user/images/logo1.png", "/home/user/images/logo2.png", "/home/user/images/logo3.png"] and save to /home/user/cropped/
+```
+
+With padding:
+```
+Autocrop /home/user/images/logo.png with 10 pixels of padding and save to /home/user/output/
 ```
 
 ## Development
