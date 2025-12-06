@@ -186,9 +186,18 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": (
                             "Absolute path to directory for saving output images. "
-                            "Required for batch processing. Optional for single image. "
-                            "Images saved with 'nobg_' prefix."
+                            "Required when overwrite=False. "
+                            "Images saved with 'nobg_' prefix when overwrite=False."
                         ),
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, replace original images with background-removed versions. "
+                            "If false, save to output_dir with 'nobg_' prefix. "
+                            "Default: true"
+                        ),
+                        "default": True,
                     },
                     "max_workers": {
                         "type": "integer",
@@ -200,7 +209,7 @@ async def list_tools() -> list[Tool]:
                 },
                 "oneOf": [
                     {"required": ["input_path"]},
-                    {"required": ["input_paths", "output_dir"]},
+                    {"required": ["input_paths"]},
                 ],
             },
         ),
@@ -365,6 +374,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             input_path = arguments.get("input_path")
             input_paths = arguments.get("input_paths")
             output_dir = arguments.get("output_dir")
+            overwrite = arguments.get("overwrite", True)
             max_workers = arguments.get("max_workers", 4)
 
             # Validate that either input_path or input_paths is provided
@@ -373,6 +383,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             if input_path and input_paths:
                 raise ValueError("Cannot specify both input_path and input_paths")
+
+            # Validate output_dir requirements
+            if not overwrite and not output_dir:
+                raise ValueError("output_dir is required when overwrite=False")
 
             # Handle single image processing
             if input_path:
@@ -387,20 +401,28 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     if not output_dir_path.is_absolute():
                         raise ValueError(f"output_dir must be an absolute path, got: {output_dir}")
 
-                logger.info(f"Removing background from single image: {input_path}")
+                mode_desc = "overwrite mode" if overwrite else "preserve mode"
+                logger.info(f"Removing background from single image ({mode_desc}): {input_path}")
 
                 # Remove background
                 result = ImagenClient.remove_background(
                     input_paths=input_path,
                     output_dir=output_dir,
+                    overwrite=overwrite,
                 )
 
                 # Format response for single image
-                response_text = (
-                    f"Successfully removed background from image:\n"
-                    f"Input: {result['input']}\n"
-                    f"Output: {result['output']}"
-                )
+                if overwrite:
+                    response_text = (
+                        f"Successfully removed background (overwrote original):\n"
+                        f"File: {result['output']}"
+                    )
+                else:
+                    response_text = (
+                        f"Successfully removed background:\n"
+                        f"Input: {result['input']}\n"
+                        f"Output: {result['output']}"
+                    )
 
                 return [TextContent(type="text", text=response_text)]
 
@@ -410,25 +432,28 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 if not isinstance(input_paths, list) or len(input_paths) == 0:
                     raise ValueError("input_paths must be a non-empty array")
 
-                # Validate output_dir is required for batch
-                if not output_dir:
-                    raise ValueError("output_dir is required for batch processing")
-
-                output_dir_path = Path(output_dir)
-                if not output_dir_path.is_absolute():
-                    raise ValueError(f"output_dir must be an absolute path, got: {output_dir}")
+                # Validate output_dir if provided
+                if output_dir:
+                    output_dir_path = Path(output_dir)
+                    if not output_dir_path.is_absolute():
+                        raise ValueError(f"output_dir must be an absolute path, got: {output_dir}")
 
                 # Validate all input paths are absolute
                 for path in input_paths:
                     if not Path(path).is_absolute():
                         raise ValueError(f"All input paths must be absolute, got: {path}")
 
-                logger.info(f"Removing background from {len(input_paths)} images in batch mode")
+                mode_desc = "overwrite mode" if overwrite else "preserve mode"
+                logger.info(
+                    f"Removing background from {len(input_paths)} images "
+                    f"in batch mode ({mode_desc})"
+                )
 
                 # Remove backgrounds in parallel
                 result = ImagenClient.remove_background(
                     input_paths=input_paths,
                     output_dir=output_dir,
+                    overwrite=overwrite,
                     max_workers=max_workers,
                 )
 

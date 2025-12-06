@@ -488,6 +488,7 @@ class ImagenClient:
     def remove_background(
         input_paths: str | Path | list[str | Path],
         output_dir: str | Path | None = None,
+        overwrite: bool = True,
         max_workers: int = 4,
     ) -> dict[str, str | list[dict[str, str]]]:
         """Remove background from one or more images using rembg.
@@ -496,7 +497,9 @@ class ImagenClient:
             input_paths: Single path or list of paths to input image files
             output_dir: Directory to save output images (optional).
                 If not provided for single image, saves with 'nobg_' prefix in same directory.
-                For batch processing, output_dir is required.
+                For batch processing with overwrite=False, output_dir is required.
+            overwrite: If True, replace original images with background-removed versions.
+                If False, save to output_dir with 'nobg_' prefix (default: True)
             max_workers: Maximum number of parallel workers for batch processing (default: 4)
 
         Returns:
@@ -508,17 +511,24 @@ class ImagenClient:
             }
 
         Raises:
-            ValueError: If batch processing requested without output_dir
+            ValueError: If batch processing with overwrite=False without output_dir
             FileNotFoundError: If input image doesn't exist (single image mode)
         """
         # Handle single image case
         if isinstance(input_paths, (str, Path)):
             input_path = input_paths
-            output_path = None
-            if output_dir:
+            input_file = Path(input_path)
+
+            if overwrite:
+                # Overwrite mode: replace original file
+                output_path = input_path
+            elif output_dir:
+                # Non-overwrite with output_dir: save to output_dir with prefix
                 output_dir_path = Path(output_dir)
-                input_file = Path(input_path)
                 output_path = output_dir_path / f"nobg_{input_file.name}"
+            else:
+                # Non-overwrite without output_dir: save with prefix in same directory
+                output_path = None
 
             input_abs, output_abs, error = ImagenClient._remove_background_single(
                 input_path, output_path
@@ -528,13 +538,13 @@ class ImagenClient:
             return {"input": input_abs, "output": output_abs}
 
         # Handle batch processing
-        if not output_dir:
-            raise ValueError("output_dir is required for batch background removal")
-
-        output_dir_path = Path(output_dir)
-        output_dir_path.mkdir(parents=True, exist_ok=True)
+        if not overwrite and not output_dir:
+            raise ValueError(
+                "output_dir is required for batch background removal when overwrite=False"
+            )
 
         logger.info(f"Starting batch background removal for {len(input_paths)} images")
+        logger.info(f"Overwrite mode: {overwrite}")
         logger.info(f"Using {max_workers} parallel workers")
 
         results = []
@@ -547,7 +557,16 @@ class ImagenClient:
             future_to_input = {}
             for input_path in input_paths:
                 input_file = Path(input_path)
-                output_path = output_dir_path / f"nobg_{input_file.name}"
+
+                if overwrite:
+                    # Overwrite mode: replace original file
+                    output_path = input_path
+                else:
+                    # Non-overwrite mode: save to output_dir with prefix
+                    output_dir_path = Path(output_dir)
+                    output_dir_path.mkdir(parents=True, exist_ok=True)
+                    output_path = output_dir_path / f"nobg_{input_file.name}"
+
                 future = executor.submit(
                     ImagenClient._remove_background_single, input_path, output_path
                 )

@@ -131,7 +131,7 @@ class TestImagenClient:
                 )
 
     def test_remove_background_single_image(self):
-        """Test removing background from a single image."""
+        """Test removing background from a single image (preserve mode)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a dummy input image
             input_file = Path(tmpdir) / "test_image.png"
@@ -140,7 +140,9 @@ class TestImagenClient:
             with patch("src.mcp_imagen_server.imagen_client.remove") as mock_remove:
                 mock_remove.return_value = b"fake output data"
 
-                result = ImagenClient.remove_background(input_paths=str(input_file))
+                result = ImagenClient.remove_background(
+                    input_paths=str(input_file), overwrite=False
+                )
 
                 assert "input" in result
                 assert "output" in result
@@ -164,7 +166,7 @@ class TestImagenClient:
                 mock_remove.return_value = b"fake output data"
 
                 result = ImagenClient.remove_background(
-                    input_paths=str(input_file), output_dir=str(output_dir)
+                    input_paths=str(input_file), output_dir=str(output_dir), overwrite=False
                 )
 
                 assert "output" in result
@@ -189,7 +191,7 @@ class TestImagenClient:
                 mock_remove.return_value = b"fake output data"
 
                 result = ImagenClient.remove_background(
-                    input_paths=input_files, output_dir=str(output_dir)
+                    input_paths=input_files, output_dir=str(output_dir), overwrite=False
                 )
 
                 assert "results" in result
@@ -235,13 +237,13 @@ class TestImagenClient:
                 assert None in errors  # One succeeded
                 assert any(e is not None for e in errors)  # One failed
 
-    def test_remove_background_batch_requires_output_dir(self):
-        """Test that batch processing requires output_dir."""
+    def test_remove_background_batch_requires_output_dir_when_preserve(self):
+        """Test that batch processing requires output_dir when overwrite=False."""
         with tempfile.TemporaryDirectory() as tmpdir:
             input_files = [str(Path(tmpdir) / "test.png")]
 
             with pytest.raises(ValueError, match="output_dir is required"):
-                ImagenClient.remove_background(input_paths=input_files)
+                ImagenClient.remove_background(input_paths=input_files, overwrite=False)
 
     def test_remove_background_batch_parallel_execution(self):
         """Test that batch processing uses parallel execution."""
@@ -261,11 +263,102 @@ class TestImagenClient:
 
                 # Test with different worker counts
                 result = ImagenClient.remove_background(
-                    input_paths=input_files, output_dir=str(output_dir), max_workers=2
+                    input_paths=input_files,
+                    output_dir=str(output_dir),
+                    overwrite=False,
+                    max_workers=2,
                 )
 
                 assert result["successful"] == 5
                 assert len(result["results"]) == 5
+
+    def test_remove_background_overwrite_single(self):
+        """Test overwrite mode for single image."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a dummy input image
+            input_file = Path(tmpdir) / "test_image.png"
+            input_file.write_bytes(b"fake image data")
+
+            with patch("src.mcp_imagen_server.imagen_client.remove") as mock_remove:
+                mock_remove.return_value = b"fake output data"
+
+                result = ImagenClient.remove_background(input_paths=str(input_file), overwrite=True)
+
+                assert "input" in result
+                assert "output" in result
+                # In overwrite mode, output should be same as input
+                assert result["output"] == str(input_file.absolute())
+                # File should contain the processed data
+                assert input_file.read_bytes() == b"fake output data"
+
+    def test_remove_background_overwrite_batch(self):
+        """Test overwrite mode for batch processing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create multiple input images
+            input_files = []
+            for i in range(3):
+                input_file = Path(tmpdir) / f"test_{i}.png"
+                input_file.write_bytes(b"fake image data")
+                input_files.append(str(input_file))
+
+            with patch("src.mcp_imagen_server.imagen_client.remove") as mock_remove:
+                mock_remove.return_value = b"fake output data"
+
+                result = ImagenClient.remove_background(input_paths=input_files, overwrite=True)
+
+                assert result["successful"] == 3
+                assert result["failed"] == 0
+
+                # Verify all files were overwritten
+                for item in result["results"]:
+                    assert item["error"] is None
+                    # In overwrite mode, output equals input
+                    assert item["output"] == item["input"]
+                    # Original files should be overwritten
+                    assert Path(item["input"]).read_bytes() == b"fake output data"
+
+    def test_remove_background_preserve_mode(self):
+        """Test preserve mode (overwrite=False) for batch processing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create multiple input images
+            input_files = []
+            original_data = b"original image data"
+            for i in range(3):
+                input_file = Path(tmpdir) / f"test_{i}.png"
+                input_file.write_bytes(original_data)
+                input_files.append(str(input_file))
+
+            output_dir = Path(tmpdir) / "output"
+            output_dir.mkdir()
+
+            with patch("src.mcp_imagen_server.imagen_client.remove") as mock_remove:
+                mock_remove.return_value = b"processed data"
+
+                result = ImagenClient.remove_background(
+                    input_paths=input_files, output_dir=str(output_dir), overwrite=False
+                )
+
+                assert result["successful"] == 3
+
+                # Verify original files are unchanged
+                for input_path in input_files:
+                    assert Path(input_path).read_bytes() == original_data
+
+                # Verify output files exist with processed data
+                for item in result["results"]:
+                    output_path = Path(item["output"])
+                    assert output_path.exists()
+                    assert output_path.read_bytes() == b"processed data"
+                    assert output_path.parent == output_dir
+                    assert "nobg_" in output_path.name
+
+    def test_remove_background_requires_output_dir_when_preserve(self):
+        """Test that output_dir is required for batch when overwrite=False."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_files = [str(Path(tmpdir) / "test.png")]
+
+            with pytest.raises(ValueError, match="output_dir is required"):
+                ImagenClient.remove_background(input_paths=input_files, overwrite=False)
 
     def test_generate_images_batch_prompts(self):
         """Test batch image generation with multiple prompts."""
