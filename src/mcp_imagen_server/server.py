@@ -183,10 +183,10 @@ async def list_tools() -> list[Tool]:
                     "overwrite": {
                         "type": "boolean",
                         "description": (
-                            "Whether to overwrite existing output files (default: False). "
+                            "Whether to overwrite existing output files (default: True). "
                             "If False and output file exists, the operation will fail with an error."
                         ),
-                        "default": False,
+                        "default": True,
                     },
                 },
                 "required": ["input_paths"],
@@ -311,7 +311,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             input_paths = arguments["input_paths"]
             output_dir = arguments.get("output_dir")
             padding = arguments.get("padding", 0)
-            overwrite = arguments.get("overwrite", False)
+            overwrite = arguments.get("overwrite", True)
 
             # Validate input paths
             if not isinstance(input_paths, list) or len(input_paths) == 0:

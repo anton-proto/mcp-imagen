@@ -356,7 +356,7 @@ class ImagenClient:
         input_path: str | Path,
         output_path: str | Path | None = None,
         padding: int = 0,
-        overwrite: bool = False,
+        overwrite: bool = True,
     ) -> str:
         """Automatically crop an image to remove transparent or empty borders.
 
@@ -365,7 +365,7 @@ class ImagenClient:
             output_path: Path to save the cropped image (optional).
                 If not provided, will save with '_cropped' suffix in same directory.
             padding: Number of pixels to add as padding around cropped content (default: 0)
-            overwrite: Whether to overwrite existing output files (default: False).
+            overwrite: Whether to overwrite existing output files (default: True).
                 If False and output file exists, raises FileExistsError.
 
         Returns:

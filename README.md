@@ -251,7 +251,7 @@ Automatically crop images to remove transparent or empty borders. Supports both 
 | `input_paths` | array of strings | Yes | List of absolute paths to input image files to crop |
 | `output_dir` | string | No | Absolute path to output directory. If not provided, cropped images will be saved in the same directory as input files with '_cropped' suffix |
 | `padding` | integer | No | Number of pixels to add as padding around cropped content. Default: 0 |
-| `overwrite` | boolean | No | Whether to overwrite existing output files. Default: False. If False and output file exists, the operation will fail with an error |
+| `overwrite` | boolean | No | Whether to overwrite existing output files. Default: True. If False and output file exists, the operation will fail with an error |
 
 #### Response
 
@@ -306,12 +306,12 @@ With padding:
 Autocrop /home/user/images/logo.png with 10 pixels of padding and save to /home/user/output/
 ```
 
-With overwrite enabled:
+With overwrite disabled (prevent overwriting):
 ```
-Autocrop /home/user/images/logo.png and save to /home/user/output/ with overwrite enabled
+Autocrop /home/user/images/logo.png and save to /home/user/output/ with overwrite disabled
 ```
 
-Note: By default, if the output file already exists, the operation will fail to prevent accidental overwrites. Use `overwrite=True` to allow overwriting existing files.
+Note: By default, the tool will overwrite existing output files. Set `overwrite=False` to prevent accidental overwrites and raise an error if the output file already exists.
 
 ## Development
 
