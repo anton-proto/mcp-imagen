@@ -3,7 +3,7 @@ name = "mcp-imagen-server"
 version = "0.1.0"
 description = "MCP server for Google Imagen API - text-to-image generation"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "google-auth>=2.43.0",
     "google-genai>=1.53.0",
@@ -27,7 +27,7 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = [
